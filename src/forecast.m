@@ -1,40 +1,55 @@
 function yF = forecast(y, s, coef, H)
-    % Forecast h=1..H using:
-    % yhat_t = c + d*t + sum_i a_i*y_{t-i} + sum_k (alpha_k cos(2πkt/s) + beta_k sin(2πkt/s))
-    % and for t-i > T, use previously predicted values.
+% FORECAST     Given some data y, a seasonal period s, 
+% and a set of coefficients describing a model of best fit,
+% forecast the behavior of the time series beyond the last
+% given datapoint.
+%
+% Parameters:
+%   y = length T vector; scalar time series data 
+%   s = scalar; period of season in terms of number of timesteps
+%   coef: struct with fields:
+%       .c: Scalar; constant term
+%       .d: Scalar; coefficient of time index 
+%       .a: Length N vector; coefficients of lag
+%       .alpha: Length K vector; coefficients of cosine
+%               seasonal harmonics
+%       .beta: Length K vector; coefficients of sine
+%              seasonal harmonics
+%   H = nonnegative integer; number of timesteps to forecast
+%
+% Returns:
+%   yF = length H vector; the forecasted time series response
+%
+y = y(:);               % Time series data
+T = numel(y);           % Number of timesteps in data  
+N = numel(coef.a);      % Number of lag elements in model
+K = numel(coef.alpha);  % Number of seasonal harmonics in model
 
-    y = double(y(:));
-    T = numel(y);
-    N = numel(coef.a);
-    K = numel(coef.alpha);
-    if ~isfield(coef, 'beta')
-        coef.beta = zeros(size(coef.alpha));
+% Create forecasted time series response vector 
+% using a recursive prediction process
+yF = zeros(H,1);
+for h = 1:H
+    t = T + h;
+
+    % Compute the seasonal component at this timestep
+    seasonal = 0;
+    for k=1:K
+        seasonal = seasonal + coef.alpha(k)*cos(2*pi*k*t/s) + coef.beta(k)*sin(2*pi*k*t/s);
     end
 
-    yF = zeros(H,1);
-    % Combined observed+forecast history so y_{t-i} is always a direct read
-    yhist = [y; zeros(H,1)];  % indices 1..T are data, T+1..T+H will be filled
+    % Compute constant/linear component at this timestep
+    prediction = coef.c + coef.d * t + seasonal;
 
-    for h = 1:H
-        t = T + h;  % absolute time index
-
-        % seasonal term (deterministic in t)
-        sea = 0;
-        for k = 1:K
-            ang = 2*pi*k*t/s;
-            sea = sea + coef.alpha(k)*cos(ang) + coef.beta(k)*sin(ang);
+    % Compute lag component using recursive prediction
+    % (that is, use original data if available at a given timestep;
+    % otherwise, use previous forecastd data at that timestep)
+    for i = 1:N
+        if h-i <= 0
+            prediction = prediction + coef.a(i)*y(T-(i-1));
+        else
+            prediction = prediction + coef.a(i)*yF(h-i);
         end
-
-        % intercept + linear trend
-        acc = coef.c + coef.d*t + sea;
-
-        % AR(N) lags: ALWAYS read from the growing history
-        % (No if/else; by construction t-i >= 1 since T >= N)
-        for i = 1:N
-            acc = acc + coef.a(i) * yhist(t - i);
-        end
-
-        yhist(t) = acc;   % commit this step so future lags see it
-        yF(h)    = acc;
     end
+    yF(h) = prediction;
+end
 end
